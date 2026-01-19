@@ -1,8 +1,27 @@
 import os
+import threading
+from flask import Flask
 import discord
 from discord.ext import commands
 import google.generativeai as genai
 from dotenv import load_dotenv
+
+# --- 新增：Flask 迷你網頁伺服器 ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "I'm alive!"
+
+def run_web_server():
+    # Render 會自動分配 PORT，若無則預設 8080
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = threading.Thread(target=run_web_server)
+    t.start()
+# ------------------------------
 
 # 讀取本地 .env 檔案 (本地測試用)
 load_dotenv()
@@ -54,4 +73,7 @@ async def on_message(message):
         except Exception as e:
             await message.reply(f"❌ 發生錯誤: {str(e)}")
 
-bot.run(DISCORD_TOKEN)
+# 在啟動 Bot 之前，先啟動網頁伺服器
+if __name__ == "__main__":
+    keep_alive()  # 啟動保活網頁
+    bot.run(os.getenv("DISCORD_TOKEN"))
