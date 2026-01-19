@@ -6,6 +6,8 @@ import discord
 from discord.ext import commands
 from google import genai  # 升級到最新 SDK
 from dotenv import load_dotenv
+import gspread
+from google.oauth2.service_account import Credentials
 
 # --- 1. 強化版 Flask 保活設定 ---
 app = Flask('')
@@ -20,24 +22,49 @@ def run_web_server():
     app.run(host='0.0.0.0', port=port)
 
 # --- 2. 初始化設定 ---
-DATA_FILE = "players.json"
+# --- Google Sheets 設定 ---
+# 在 Render 的環境變數設定一個 G_SHEET_JSON，把整份 JSON 檔案內容貼進去
+SCOPE = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+def get_sheet():
+    # 讀取環境變數中的 JSON 字串
+    creds_json = os.getenv("G_SHEET_JSON")
+    if not creds_json:
+        print("❌ 找不到 Google Sheets 金鑰環境變數")
+        return None
+    
+    # 將字串轉回 JSON 格式並認證
+    creds_info = json.loads(creds_json)
+    creds = Credentials.from_service_account_info(creds_info, scopes=SCOPE)
+    client = gspread.authorize(creds)
+    
+    # 使用試算表的名稱或 ID 打開 (請替換成你的試算表名稱)
+    return client.open("你的試算表名稱").sheet1
+
+def save_to_sheets(data):
+    sheet = get_sheet()
+    if not sheet: return
+    
+    # 為了簡單，我們把整個 player_data 轉成字串存進 A1 儲存格
+    # 這樣就像是一個簡單的 Key-Value 資料庫
+    sheet.update_acell('A1', json.dumps(data, ensure_ascii=False))
+
+def load_from_sheets():
+    sheet = get_sheet()
+    if not sheet: return {}
+    
+    val = sheet.acell('A1').value
+    if val:
+        return json.loads(val)
     return {}
 
-def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
-# 在初始化時讀取資料
-player_data = load_data()
+# 初始化資料
+player_data = load_from_sheets()
 
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+gemini_model_name = 'gemini-2.5-flash-lite'
 
 # 使用最新的 google-genai 語法
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -88,7 +115,7 @@ async def roll(ctx, notation: str):
     # 【核心連動】自動把擲骰結果傳給 Gemini 讓它接話
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model=gemini_model_name,
             contents=f"系統訊息：{ctx.author.name} 進行了動作並擲骰子，結果是 {result['total']}。請根據這個結果繼續敘事。",
             config={'system_instruction': SYSTEM_INSTRUCTION}
         )
@@ -127,7 +154,7 @@ async def create_char(ctx, char_name: str, profession: str, *, bio_keywords: str
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model=gemini_model_name,
             contents=prompt
         )
         text = response.text
@@ -186,7 +213,7 @@ async def on_message(message):
         clean_content = message.content.replace(f'<@{bot.user.id}>', '').strip()
         try:
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model=gemini_model_name,
                 contents=f"{message.author.name}: {clean_content}",
                 config={'system_instruction': SYSTEM_INSTRUCTION}
             )
