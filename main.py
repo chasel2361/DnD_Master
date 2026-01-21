@@ -11,6 +11,7 @@ from google import genai
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials
+from google.genai import types
 
 # --- 1. 強化版 Flask 保活設定 ---
 app = Flask('')
@@ -156,7 +157,9 @@ async def roll(ctx, notation: str):
         response = client.models.generate_content(
             model=gemini_model_name,
             contents=f"系統訊息：{ctx.author.name} 擲骰結果是 {result['total']}。請描述後果。",
-            config={'system_instruction': SYSTEM_INSTRUCTION}
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_INSTRUCTION,
+                tempreature=0.7
         )
         await ctx.send(f"🎙️ **DM**: {response.text}")
     except Exception as e:
@@ -170,7 +173,12 @@ async def create_char(ctx, char_name: str, profession: str, *, bio_keywords: str
     prompt = f"請為玩家建立 D&D 角色。姓名：{char_name}, 職業：{profession}, 背景：{bio_keywords}。請依格式回傳 [STORY]...[STATS] Strength: 10... [END]"
     
     try:
-        response = client.models.generate_content(model=gemini_model_name, contents=prompt)
+        response = client.models.generate_content(model=gemini_model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction="你是一位專業的 D&D 角色創建助手，請依 [STORY]...[STATS]...[END] 格式回傳。"
+            )
+        )
         text = response.text
         
         # 解析屬性 (簡化版正則)
