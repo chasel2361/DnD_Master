@@ -160,6 +160,7 @@ async def roll(ctx, notation: str):
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_INSTRUCTION,
                 tempreature=0.7
+            )
         )
         await ctx.send(f"🎙️ **DM**: {response.text}")
     except Exception as e:
