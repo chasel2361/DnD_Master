@@ -48,7 +48,7 @@ def get_sheet():
         creds = Credentials.from_service_account_info(creds_info, scopes=SCOPE)
         client = gspread.authorize(creds)
         # ⚠️ 請確保此處名稱與你的試算表名稱一致
-        sheet_name = "DnD_Data" 
+        sheet_name = "你的試算表名稱" 
         return client.open(sheet_name).sheet1
     except Exception as e:
         logger.error(f"❌ 無法連接至 Google Sheets: {e}")
@@ -153,4 +153,75 @@ async def roll(ctx, notation: str):
     except Exception as e:
         logger.error(f"Gemini 敘事錯誤: {e}")
 
-@bot.command(name="create_
+@bot.command(name="create_char")
+async def create_char(ctx, char_name: str, profession: str, *, bio_keywords: str):
+    logger.info(f"👤 正在為 {ctx.author.name} 創建角色: {char_name}")
+    user_id = str(ctx.author.id)
+    prompt = f"建立 D&D 角色。姓名：{char_name}, 職業：{profession}, 背景：{bio_keywords}。格式: [STORY]...[STATS] Strength: 10... [END]"
+    try:
+        resp = client.models.generate_content(
+            model=gemini_model_name, 
+            contents=prompt,
+            config=types.GenerateContentConfig(system_instruction="請依 [STORY]...[STATS]...[END] 格式回傳。")
+        )
+        text = resp.text
+        new_stats = {}
+        for stat in ["strength", "dexterity", "intelligence", "wisdom", "constitution", "charisma"]:
+            val = re.search(rf"{stat.capitalize()}:\s*(\d+)", text, re.IGNORECASE)
+            if val: new_stats[stat] = int(val.group(1))
+
+        player_data[user_id] = {"char_name": char_name, "profession": profession, "stats": new_stats}
+        save_to_sheets(player_data, adventure_log)
+        await ctx.send(f"✅ **{char_name}** 已同步至雲端試算表！")
+    except Exception as e:
+        logger.error(f"角色創建失敗: {e}")
+        await ctx.send("❌ 角色生成出錯，請查看 Log。")
+
+@bot.event
+async def on_ready():
+    global player_data, adventure_log
+    player_data, adventure_log = load_all_data()
+    logger.info(f"🎲 機器人已就緒：{bot.user}")
+
+@bot.event
+async def on_message(message):
+    global message_counter, adventure_log
+    if message.author == bot.user: return
+    await bot.process_commands(message)
+    
+    if not message.content.startswith('!') and (bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel)):
+        logger.info(f"💬 收到來自 {message.author.name} 的冒險行動")
+        channel_id = str(message.channel.id)
+        char_info = player_data.get(str(message.author.id), "初出茅廬的冒險者")
+        
+        if channel_id not in recent_chats: recent_chats[channel_id] = []
+        
+        full_prompt = build_dnd_prompt(message.content, char_info, adventure_log, recent_chats[channel_id])
+        
+        try:
+            response = client.models.generate_content(
+                model=gemini_model_name,
+                contents=full_prompt,
+                config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.7)
+            )
+            reply = response.text
+            await message.reply(reply)
+            
+            recent_chats[channel_id].append({"role": "玩家", "content": message.content})
+            recent_chats[channel_id].append({"role": "DM", "content": reply})
+            
+            # --- 自動摘要邏輯 ---
+            message_counter += 1
+            if message_counter >= AUTO_LOG_INTERVAL:
+                adventure_log = await auto_summarize(recent_chats[channel_id], adventure_log)
+                save_to_sheets(player_data, adventure_log)
+                message_counter = 0
+            
+            if len(recent_chats[channel_id]) > 10: recent_chats[channel_id] = recent_chats[channel_id][-10:]
+        except Exception as e:
+            logger.error(f"對話處理出錯: {e}")
+            await message.reply("❌ DM 暫時斷線了，請稍後再試。")
+
+if __name__ == "__main__":
+    threading.Thread(target=run_web_server, daemon=True).start()
+    bot.run(DISCORD_TOKEN)
