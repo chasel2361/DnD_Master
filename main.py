@@ -41,15 +41,16 @@ SCOPE = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis
 def get_sheet():
     creds_json = os.getenv("G_SHEET_JSON")
     if not creds_json:
-        logger.error("❌ 找不到 G_SHEET_JSON 環境變數，請在 Render 設定頁面檢查。")
+        logger.error("❌ 找不到 G_SHEET_JSON 環境變數")
         return None
     try:
         creds_info = json.loads(creds_json)
         creds = Credentials.from_service_account_info(creds_info, scopes=SCOPE)
         client = gspread.authorize(creds)
-        # ⚠️ 請確保此處名稱與你的試算表名稱一致
-        sheet_name = "你的試算表名稱" 
-        return client.open(sheet_name).sheet1
+        
+        # 🟢 改用 ID 連線，穩定度最高
+        sheet_id = "18NGyZv1-68MEzizAfz8UyazNjYRepbtRmNNw4IaTy1M" 
+        return client.open_by_key(sheet_id).sheet1
     except Exception as e:
         logger.error(f"❌ 無法連接至 Google Sheets: {e}")
         return None
