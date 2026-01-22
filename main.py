@@ -128,6 +128,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.command(name="roll")
 async def roll(ctx, notation: str):
     """擲骰子，例如 !roll 1d20+5"""
+    global message_counter, adventure_log
     logger.info(f"🎲 {ctx.author.name} 擲骰: {notation}")
     match = re.match(r'(\d+)d(\d+)([+-]\d+)?', notation.lower())
     if not match: 
@@ -138,17 +139,34 @@ async def roll(ctx, notation: str):
     rolls = [random.randint(1, sides) for _ in range(num)]
     total = sum(rolls) + mod
     
-    await ctx.send(f"🎲 **{ctx.author.name}** 擲出了 **{total}** ({' + '.join(map(str, rolls))}{f' + {mod}' if mod else ''})")
+    roll_result_text = f"🎲 **{ctx.author.name}** 擲出了 **{total}** ({' + '.join(map(str, rolls))}{f' + {mod}' if mod else ''})"
+    await ctx.send(roll_result_text)
     
-    # 讓 DM 描述結果
+    # 讓 DM 描述結果，並將結果存入共享記憶
     try:
+        channel_id = str(ctx.channel.id)
+        if channel_id not in recent_chats: recent_chats[channel_id] = []
+        
         char_info = player_data.get(str(ctx.author.id), "一位冒險者")
         resp = genai_client.models.generate_content(
             model=gemini_model_name,
-            contents=f"系統訊息：玩家 {ctx.author.name} ({char_info}) 執行了行動並擲骰結果為 {total}。請根據此數值描述冒險中的後果。",
+            contents=f"系統訊息：玩家 {ctx.author.name} ({char_info}) 擲骰結果為 {total} (對應行動: {notation})。請根據此數值描述冒險中的後果。",
             config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.7)
         )
-        await ctx.send(f"🎙️ **DM**: {resp.text}")
+        reply = resp.text
+        await ctx.send(f"🎙️ **DM**: {reply}")
+
+        # 將此事件加入對話紀錄，確保 DM 以後記得
+        recent_chats[channel_id].append({"role": "玩家", "content": f"{ctx.author.name} 執行了 {notation} 擲骰，結果為 {total}"})
+        recent_chats[channel_id].append({"role": "DM", "content": reply})
+
+        # 擲骰也是冒險的一部分，計入自動摘要
+        message_counter += 1
+        if message_counter >= AUTO_LOG_INTERVAL:
+            adventure_log = await auto_summarize(recent_chats[channel_id], adventure_log)
+            save_to_sheets(player_data, adventure_log)
+            message_counter = 0
+            
     except Exception as e:
         logger.error(f"DM 描述失敗: {e}")
 
