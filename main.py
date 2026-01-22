@@ -29,9 +29,14 @@ def home():
     return "DM is Online, Logging and Ready!"
 
 def run_web_server():
-    port = int(os.environ.get("PORT", 10000)) 
-    logger.info(f"📡 啟動 Flask 保活伺服器於 Port: {port}")
-    app.run(host='0.0.0.0', port=port)
+    # 這裡加入預防性處理，確保 PORT 一定有數值
+    try:
+        port = int(os.environ.get("PORT", 10000)) 
+        logger.info(f"📡 嘗試啟動 Flask 於 Port: {port}...")
+        # 加上 use_reloader=False 避免在 Thread 中啟動兩次
+        app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    except Exception as e:
+        logger.error(f"❌ Flask 啟動失敗: {e}")
 
 # --- 3. Google Sheets 資料庫邏輯 ---
 load_dotenv()
@@ -249,5 +254,20 @@ async def on_message(message):
             await message.reply("❌ DM 喉嚨不太舒服 (API 錯誤)，請稍後再試。")
 
 if __name__ == "__main__":
-    threading.Thread(target=run_web_server, daemon=True).start()
-    bot.run(DISCORD_TOKEN)
+    # 1. 優先啟動 Flask 線程
+    flask_thread = threading.Thread(target=run_web_server, daemon=True)
+    flask_thread.start()
+    
+    # 2. 檢查必要的環境變數，若缺失則直接報錯在 Log，不要讓它默默死掉
+    required_vars = ["DISCORD_TOKEN", "GEMINI_API_KEY", "G_SHEET_JSON", "G_SHEET_ID"]
+    missing_vars = [v for v in required_vars if not os.getenv(v)]
+    
+    if missing_vars:
+        logger.error(f"❌ 部署失敗：缺失環境變數 {missing_vars}")
+        # 這裡不退出，讓 Flask 繼續跑，這樣 Render 的 Log 才會顯示錯誤而不是直接 Timeout
+    else:
+        try:
+            logger.info("🤖 正在啟動 Discord Bot...")
+            bot.run(DISCORD_TOKEN)
+        except Exception as e:
+            logger.error(f"❌ Discord Bot 啟動失敗: {e}")
