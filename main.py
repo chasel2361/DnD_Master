@@ -75,11 +75,11 @@ def save_to_sheets(players, log):
 def load_all_data():
     logger.info("🔍 正在從雲端抓取冒險進度...")
     sheet = get_sheet()
-    if not sheet: return {}, "冒險才剛開始，冒險者們正聚在一起準備出發。"
+    if not sheet: return {}, "冒險才剛開始。"
     try:
         data_cells = sheet.get('A1:B1')
         players = {}
-        log = "冒險才剛開始，冒險者們正聚在一起準備出發。"
+        log = "冒險才剛開始。"
         
         if data_cells and len(data_cells[0]) >= 1:
             if data_cells[0][0]:
@@ -205,13 +205,20 @@ async def reset_adventure(ctx):
 @bot.event
 async def on_ready():
     global player_data, adventure_log
-    player_data, adventure_log = load_all_data()
-    logger.info(f"🎲 機器人就緒：{bot.user}")
+    logger.info(f"🎲 機器人登入成功：{bot.user}")
     
-    if NOTIFY_CHANNEL_ID:
-        channel = bot.get_channel(int(NOTIFY_CHANNEL_ID))
-        if channel:
-            await channel.send("✨ **傳送門已開啟！** DM 已經從雲端同步進度並回到崗位。")
+    # 測試與雲端連線
+    player_data, adventure_log = load_all_data()
+    
+    notify_id = os.getenv("NOTIFY_CHANNEL_ID")
+    if notify_id:
+        try:
+            # 修正點：使用 fetch_channel 替代 get_channel
+            channel = await bot.fetch_channel(int(notify_id))
+            await channel.send(f"✨ **傳送門已開啟！** (重啟時間: {datetime.now().strftime('%H:%M:%S')})\nDM 已經就緒，並同步了 {len(player_data)} 位冒險者的資料。")
+            logger.info(f"📢 已向頻道 {notify_id} 發送啟動通知。")
+        except Exception as e:
+            logger.error(f"❌ 發送啟動通知失敗: {e}")
 
 @bot.event
 async def on_message(message):
