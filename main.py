@@ -4,7 +4,7 @@ import re
 import random
 import threading
 import logging
-from datetime import datetime  # 修正：先前遺漏了這個匯入
+from datetime import datetime
 from flask import Flask
 import discord
 from discord.ext import commands
@@ -204,16 +204,20 @@ async def on_ready():
     global player_data, adventure_log
     logger.info(f"🎲 機器人登入成功：{bot.user}")
     
-    # 測試與雲端連線
+    # 除錯資訊：列出目前機器人所在的伺服器
+    guilds = [guild.name for guild in bot.guilds]
+    logger.info(f"🏰 機器人目前所在的伺服器: {guilds}")
+    
     player_data, adventure_log = load_all_data()
     
     notify_id_str = os.getenv("NOTIFY_CHANNEL_ID")
     if notify_id_str:
         try:
             notify_id = int(notify_id_str)
-            # 優先從快取找頻道，找不到才用 fetch 網路請求
             channel = bot.get_channel(notify_id)
             if channel is None:
+                # 如果 get_channel 找不到，嘗試 fetch_channel
+                logger.info(f"📡 正在嘗試從網路獲取頻道 {notify_id}...")
                 channel = await bot.fetch_channel(notify_id)
             
             if channel:
@@ -223,10 +227,12 @@ async def on_ready():
                     f"DM 已經就緒，並同步了 {len(player_data)} 位冒險者的資料。"
                 )
                 logger.info(f"📢 已向頻道 {notify_id} 發送啟動通知。")
-            else:
-                logger.error(f"❌ 找不到頻道 ID: {notify_id}")
+        except discord.errors.NotFound:
+            logger.error(f"❌ 錯誤：找不到 ID 為 {notify_id_str} 的頻道。請檢查 ID 是否正確，且機器人是否在該伺服器內。")
+        except discord.errors.Forbidden:
+            logger.error(f"❌ 錯誤：機器人沒有權限訪問頻道 {notify_id_str}。")
         except Exception as e:
-            logger.error(f"❌ 發送啟動通知失敗 (Exception): {e}", exc_info=True)
+            logger.error(f"❌ 發送啟動通知時發生未知錯誤: {e}", exc_info=True)
     else:
         logger.warning("⚠️ 未設定 NOTIFY_CHANNEL_ID 環境變數。")
 
